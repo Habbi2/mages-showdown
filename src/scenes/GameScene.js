@@ -51,13 +51,16 @@ export default class GameScene extends Phaser.Scene {
 
     // Mobile joystick state
     this.isMobile = false;
-    this.joyActive = false;
-    this.joyPointerId = null;
-    this.joyStart = { x: 0, y: 0 };
+    this.joyActive = false; // has an active touch on the joystick
+    this.joyPointerId = null; // pointer controlling joystick
+    this.joyCenter = { x: 0, y: 0 };
     this.joyVector = null; // normalized vector or null
     this.joyRadius = 80; // px
+    this.joyMargin = 24; // px from edges
     this.joyBase = null;
     this.joyThumb = null;
+    // Aim/charge touch (can be separate from joystick)
+    this.aimPointerId = null;
     }
 
     preload() {
@@ -104,50 +107,49 @@ export default class GameScene extends Phaser.Scene {
             this.isMobile = os ? !os.desktop : (('ontouchstart' in window) || navigator.maxTouchPoints > 0);
         } catch { this.isMobile = (('ontouchstart' in window) || navigator.maxTouchPoints > 0); }
 
-        // Pointer input for joystick (left side) and aiming (right side)
+        // Create fixed joystick for mobile
+        if (this.isMobile) {
+            this.createFixedJoystick();
+        }
+
+        // Pointer input: fixed joystick (bottom-left) + touch-to-aim anywhere else
         const onPointerDown = (pointer) => {
             if (!this.gameStateManager.isState(this.gameStateManager.STATES.PLAYING) || this.isSpectating) return;
 
-            const leftSide = pointer.x < this.gameWidth * 0.45;
-            if (this.isMobile && leftSide && !this.joyActive) {
-                // Start joystick
+            // If mobile and touch is inside joystick circle, engage joystick
+            if (this.isMobile && this.isInsideJoystick(pointer.x, pointer.y) && this.joyPointerId === null) {
                 this.joyActive = true;
                 this.joyPointerId = pointer.id;
-                this.joyStart = { x: pointer.x, y: pointer.y };
-                this.createJoystickGraphics(pointer.x, pointer.y);
-                this.joyVector = { x: 0, y: 0 };
-                return; // do not start charging on joystick touch
+                this.updateJoystickVector(pointer.x, pointer.y);
+                return; // joystick touch does not start charging
             }
 
-            // Right side (or desktop anywhere): start charging to shoot where touched
-            if (this.mana >= 10) this.startCharging();
+            // Otherwise, it's an aiming touch
+            if (this.aimPointerId === null) {
+                this.aimPointerId = pointer.id;
+                if (this.mana >= 10) this.startCharging();
+            }
         };
 
         const onPointerMove = (pointer) => {
-            if (!this.joyActive || pointer.id !== this.joyPointerId) return;
-            const dx = pointer.x - this.joyStart.x;
-            const dy = pointer.y - this.joyStart.y;
-            const dist = Math.hypot(dx, dy);
-            const clamped = Math.min(dist, this.joyRadius);
-            const nx = dist > 0 ? dx / dist : 0;
-            const ny = dist > 0 ? dy / dist : 0;
-            this.joyVector = { x: nx, y: ny };
-            // Position thumb within radius
-            if (this.joyThumb) this.joyThumb.setPosition(this.joyStart.x + nx * clamped, this.joyStart.y + ny * clamped);
+            if (this.joyActive && pointer.id === this.joyPointerId) {
+                this.updateJoystickVector(pointer.x, pointer.y);
+            }
         };
 
         const onPointerUp = (pointer) => {
-            if (this.joyActive && pointer.id === this.joyPointerId) {
-                // End joystick
-                this.destroyJoystickGraphics();
+            // Release joystick control if this was the joystick pointer
+            if (pointer.id === this.joyPointerId) {
                 this.joyActive = false;
                 this.joyPointerId = null;
+                this.resetJoystickThumb();
                 this.joyVector = null;
-                return;
+                return; // joystick release does not shoot
             }
-            if (this.gameStateManager.isState(this.gameStateManager.STATES.PLAYING) && !this.isSpectating) {
-                // Release charged fireball towards touch/cursor position
+            // Shoot if this was the aiming pointer
+            if (pointer.id === this.aimPointerId && this.gameStateManager.isState(this.gameStateManager.STATES.PLAYING) && !this.isSpectating) {
                 this.shootFireball(pointer.x, pointer.y);
+                this.aimPointerId = null;
             }
         };
         
@@ -189,6 +191,45 @@ export default class GameScene extends Phaser.Scene {
         if (this.joyThumb) this.joyThumb.destroy();
         this.joyBase = null;
         this.joyThumb = null;
+    }
+
+    createFixedJoystick() {
+        // Compute bottom-left anchored center
+        this.joyCenter = {
+            x: this.joyMargin + this.joyRadius,
+            y: this.gameHeight - (this.joyMargin + this.joyRadius)
+        };
+        if (!this.joyBase || !this.joyThumb) {
+            this.createJoystickGraphics(this.joyCenter.x, this.joyCenter.y);
+        } else {
+            this.joyBase.setPosition(this.joyCenter.x, this.joyCenter.y);
+            this.joyThumb.setPosition(this.joyCenter.x, this.joyCenter.y);
+        }
+    }
+
+    resetJoystickThumb() {
+        if (this.joyThumb) {
+            this.joyThumb.setPosition(this.joyCenter.x, this.joyCenter.y);
+        }
+    }
+
+    isInsideJoystick(px, py) {
+        const dx = px - this.joyCenter.x;
+        const dy = py - this.joyCenter.y;
+        return Math.hypot(dx, dy) <= this.joyRadius * 1.2; // small tolerance
+    }
+
+    updateJoystickVector(px, py) {
+        const dx = px - this.joyCenter.x;
+        const dy = py - this.joyCenter.y;
+        const dist = Math.hypot(dx, dy);
+        const clamped = Math.min(dist, this.joyRadius);
+        const nx = dist > 0 ? dx / dist : 0;
+        const ny = dist > 0 ? dy / dist : 0;
+        this.joyVector = { x: nx, y: ny };
+        if (this.joyThumb) {
+            this.joyThumb.setPosition(this.joyCenter.x + nx * clamped, this.joyCenter.y + ny * clamped);
+        }
     }
 
     updateScaling() {
@@ -245,6 +286,11 @@ export default class GameScene extends Phaser.Scene {
             this.backgroundParticles.destroy();
         }
         this.createBackgroundEffects();
+
+        // Re-anchor fixed joystick on mobile
+        if (this.isMobile) {
+            this.createFixedJoystick();
+        }
     }
 
     createBackgroundEffects() {
