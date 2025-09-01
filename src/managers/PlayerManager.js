@@ -6,6 +6,11 @@ export class PlayerManager {
         this.playersGroup = null;
         this.WORLD_PLAYER_SIZE = 15;
     this.bumpCooldownUntil = 0; // prevent continuous bumping
+
+    // Net smoothing settings
+    this.INTERP_DELAY_MS = 150; // buffer delay to smooth jitter
+    this.EXTRAP_MAX_MS = 100;   // extrapolate up to this when packets are late
+    this.BUFFER_SIZE = 12;      // snapshots kept per player
     }
 
     initialize() {
@@ -77,7 +82,8 @@ export class PlayerManager {
             isLocal: false,
             size: playerSize,
             lastMoveTime: Date.now(),
-            inCombat: false
+            inCombat: false,
+            stateBuffer: [ { t: this.scene.time.now, wx: data.worldX, wy: data.worldY } ]
         };
         
         this.players.set(data.id, playerData);
@@ -89,19 +95,18 @@ export class PlayerManager {
         const player = this.players.get(playerId);
         if (!player || player.isLocal) return;
 
-        player.worldX = data.worldX;
-        player.worldY = data.worldY;
+    // Push into interpolation buffer
+    const t = this.scene.time.now;
+    if (!player.stateBuffer) player.stateBuffer = [];
+    player.stateBuffer.push({ t, wx: data.worldX, wy: data.worldY });
+    if (player.stateBuffer.length > this.BUFFER_SIZE) player.stateBuffer.shift();
+
+    // Keep latest as canonical for collisions if needed
+    player.worldX = data.worldX;
+    player.worldY = data.worldY;
         player.health = data.health;
         player.lastMoveTime = Date.now();
-
-        const screenPos = this.scene.worldToScreen(data.worldX, data.worldY);
-        player.x = screenPos.x;
-        player.y = screenPos.y;
-        player.sprite.setPosition(screenPos.x, screenPos.y);
-
-        if (player.glow) {
-            player.glow.setPosition(screenPos.x, screenPos.y);
-        }
+    // Rendering will be handled by interpolation in updateRemotePlayers
     }
 
     removePlayer(playerId) {
@@ -252,6 +257,59 @@ export class PlayerManager {
     clearAll() {
         this.cleanup();
         this.playersGroup = this.scene.add.group();
+    }
+
+    // Per-frame smoothing for remote players using snapshot interpolation with small buffer delay
+    updateRemotePlayers() {
+        const renderTime = this.scene.time.now - this.INTERP_DELAY_MS;
+        const maxExtrapolateTo = this.scene.time.now + this.EXTRAP_MAX_MS;
+        this.players.forEach(p => {
+            if (!p || p.isLocal || !p.sprite) return;
+            if (!p.stateBuffer || p.stateBuffer.length === 0) return;
+
+            // Find snapshots around renderTime
+            let older = null, newer = null;
+            for (let i = p.stateBuffer.length - 1; i >= 0; i--) {
+                const s = p.stateBuffer[i];
+                if (s.t <= renderTime) { older = s; newer = p.stateBuffer[i+1] || s; break; }
+            }
+            if (!older) {
+                // All states are newer: use the earliest two for interpolation (introduces slight latency)
+                older = p.stateBuffer[0];
+                newer = p.stateBuffer[1] || older;
+            }
+            if (!newer) newer = older;
+
+            let wx, wy;
+            if (older.t === newer.t) {
+                // No span, might need extrapolation
+                const last = p.stateBuffer[p.stateBuffer.length - 1];
+                const prev = p.stateBuffer[p.stateBuffer.length - 2] || last;
+                const dt = Math.max(1, last.t - prev.t);
+                const vx = (last.wx - prev.wx) / dt;
+                const vy = (last.wy - prev.wy) / dt;
+                const tClamped = Math.min(maxExtrapolateTo, this.scene.time.now);
+                const lead = Math.max(0, tClamped - last.t);
+                wx = last.wx + vx * lead;
+                wy = last.wy + vy * lead;
+            } else {
+                // Interpolate between older and newer
+                const span = Math.max(1, newer.t - older.t);
+                const a = Phaser.Math.Clamp((renderTime - older.t) / span, 0, 1);
+                wx = Phaser.Math.Linear(older.wx, newer.wx, a);
+                wy = Phaser.Math.Linear(older.wy, newer.wy, a);
+            }
+
+            // Convert to screen space and ease toward to avoid snap
+            const sPos = this.scene.worldToScreen(wx, wy);
+            const ease = 0.35; // higher = snappier
+            p.x = Phaser.Math.Linear(p.x, sPos.x, ease);
+            p.y = Phaser.Math.Linear(p.y, sPos.y, ease);
+            p.sprite.setPosition(p.x, p.y);
+            if (p.glow) p.glow.setPosition(p.x, p.y);
+            // Keep world positions updated for collisions/effects
+            p.worldX = wx; p.worldY = wy;
+        });
     }
 
     // Apply an impulse to the local player with temporary physics tweaks for a strong "fly away" effect

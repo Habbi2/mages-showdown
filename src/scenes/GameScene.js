@@ -486,6 +486,9 @@ export default class GameScene extends Phaser.Scene {
             // Player vs player bumping
             this.playerManager.updatePlayerCollisions();
         }
+
+    // Smooth remote players each frame
+    this.playerManager.updateRemotePlayers();
         
         // Check ring damage (only if not spectating)
         if (!this.isSpectating) {
