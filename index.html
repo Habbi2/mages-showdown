@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mages Arena</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a0a1a 50%, #0a1a1a 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: #00ffff;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 0 0 15px #00ffff, 0 0 30px #00ffff;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        #connection-status {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            color: #00ff00;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 0 0 15px #00ff00;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 15px;
+            border-radius: 10px;
+            border: 2px solid rgba(0, 255, 0, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        .ui-item {
+            margin: 5px 0;
+            display: flex;
+            align-items: center;
+        }
+        .ui-item::before {
+            content: "●";
+            margin-right: 8px;
+            animation: pulse 2s ease-in-out infinite alternate;
+        }
+        @keyframes pulse {
+            from { opacity: 0.6; }
+            to { opacity: 1; }
+        }
+        canvas {
+            border-radius: 10px;
+            box-shadow: 0 0 50px rgba(0, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="ui">
+            <div class="ui-item" id="health">Health: 100</div>
+            <div class="ui-item" id="players-count">Players: 1</div>
+            <div class="ui-item" id="round">Round: 1</div>
+        </div>
+        <div id="connection-status">Connecting...</div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
