@@ -107,7 +107,13 @@ export default class GameScene extends Phaser.Scene {
             this.isMobile = os ? !os.desktop : (('ontouchstart' in window) || navigator.maxTouchPoints > 0);
         } catch { this.isMobile = (('ontouchstart' in window) || navigator.maxTouchPoints > 0); }
 
-        // Create fixed joystick for mobile
+        // Allow multi-touch on mobile: need at least two pointers (joystick + aim)
+        if (this.isMobile) {
+            // One pointer exists by default; add two more (total 3)
+            this.input.addPointer(2);
+        }
+
+    // Create fixed joystick for mobile
         if (this.isMobile) {
             this.createFixedJoystick();
         }
@@ -116,7 +122,7 @@ export default class GameScene extends Phaser.Scene {
         const onPointerDown = (pointer) => {
             if (!this.gameStateManager.isState(this.gameStateManager.STATES.PLAYING) || this.isSpectating) return;
 
-            // If mobile and touch is inside joystick circle, engage joystick
+            // If mobile and touch is inside joystick circle AND joystick is free, engage joystick
             if (this.isMobile && this.isInsideJoystick(pointer.x, pointer.y) && this.joyPointerId === null) {
                 this.joyActive = true;
                 this.joyPointerId = pointer.id;
@@ -159,6 +165,11 @@ export default class GameScene extends Phaser.Scene {
         this.eventCleanup.push(() => this.input.off('pointerdown', onPointerDown));
         this.eventCleanup.push(() => this.input.off('pointermove', onPointerMove));
         this.eventCleanup.push(() => this.input.off('pointerup', onPointerUp));
+
+        // Prevent browser gestures interfering with multitouch gameplay
+        if (this.input?.touch) {
+            this.input.touch.capture = true;
+        }
         
         // Create local player
         this.createLocalPlayer();
